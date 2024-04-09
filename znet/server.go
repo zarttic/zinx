@@ -2,20 +2,40 @@ package znet
 
 import (
 	"fmt"
+	"github.com/zarttic/zinx/utils"
 	"github.com/zarttic/zinx/ziface"
 	"net"
 )
 
 // Server 接口实现，定义一个server的服务器模块
 type Server struct {
-	Name      string // 服务器名称
-	IPVersion string // tcp4/tcp6
-	IP        string // ip地址
-	Port      int    // 端口
+	Name      string         // 服务器名称
+	IPVersion string         // tcp4/tcp6
+	IP        string         // ip地址
+	Port      int            // 端口
+	Router    ziface.IRouter // 路由
+}
+
+func (s *Server) AddRouter(router ziface.IRouter) {
+	s.Router = router
+}
+
+// CallBackDefault  回显
+func CallBackDefault(conn *net.TCPConn, data []byte, cnt int) error {
+	fmt.Println("[Conn Handle] CallBackDefault ... ")
+	_, err := conn.Write(data[:cnt])
+	if err != nil {
+		fmt.Println("Write error: ", err)
+		return err
+	}
+	fmt.Println("recv from client: ", string(data[:cnt]))
+	return nil
 }
 
 // Start 启动服务器
 func (s *Server) Start() {
+	fmt.Println("[Zinx] Server Name: ", utils.GlobalObject.Name, ", Server Version: ", utils.GlobalObject.Version)
+	fmt.Println("MaxConnection: ", utils.GlobalObject.MaxConnection, " MaxPackageSize: ", utils.GlobalObject.MaxPackageSize)
 	fmt.Printf("[Zinx] Server Start IP %s, Port: %d \n", s.IP, s.Port)
 	go func() {
 		// 获取tcp的地址
@@ -30,6 +50,8 @@ func (s *Server) Start() {
 			fmt.Println("listen error: ", err)
 			return
 		}
+		var cid uint32 = 0
+
 		//阻塞的等待客户端链接，处理业务
 		fmt.Println("start Zinx server success, ", s.Name, " success, listening...")
 		for {
@@ -38,25 +60,10 @@ func (s *Server) Start() {
 				fmt.Println("Accept error: ", err)
 				continue
 			}
-			// 已经建立链接，可以开始业务了
-			go func() {
-				for {
-					buf := make([]byte, 512)
-					cnt, err := conn.Read(buf)
-					if err != nil {
-						fmt.Println("read error: ", err)
-						continue
-					}
-					fmt.Printf("recv client data: %s, cnt: %d\n", buf, cnt)
-					// 回显
-					_, err = conn.Write(buf[:cnt])
-					if err != nil {
-						fmt.Println("write back error: ", err)
-						continue
-					}
-				}
-			}()
-
+			dealConn := NewConnection(conn, cid, s.Router)
+			cid++
+			//启动业务处理
+			go dealConn.Start()
 		}
 	}()
 }
@@ -76,11 +83,12 @@ func (s *Server) Serve() {
 }
 
 // NewServer 初始化server
-func NewServer(name string) ziface.IServer {
+func NewServer() ziface.IServer {
 	return &Server{
-		Name:      name,
+		Name:      utils.GlobalObject.Name,
 		IPVersion: "tcp4",
-		IP:        "0.0.0.0",
-		Port:      8999,
+		IP:        utils.GlobalObject.Host,
+		Port:      utils.GlobalObject.TcpPort,
+		Router:    &BaseRouter{},
 	}
 }
